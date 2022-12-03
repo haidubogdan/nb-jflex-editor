@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- You may freely edit this file. See harness/README in the NetBeans platform -->
+<!-- for some information on what you could do (e.g. targets to override). -->
+<!-- If you delete this file and reopen the project it will be recreated. -->
+<project name="jflex.editor" default="netbeans" basedir=".">
+    <description>Builds, tests, and runs the project org.netbeans.modules.jflex.lexer.</description>
+    <import file="nbproject/build-impl.xml"/>
+    <!-- JFlex handling (download and taskdef) -->
+    <target name="prepare-jflex" depends="build-init">
+        <echo>
+            Checking the Jflex file
+        </echo>
+        <taskdef name="jflex"
+                 classname="JFlex.anttask.JFlexTask"
+                 classpath="${basedir}/external/JFlex.jar" onerror="fail"/>
+    </target>
+    <!-- JFLEX section - generating JFLEX lexer -->
+    <target name="gen-jflex-lexer" depends="prepare-jflex">
+        <jflex file="tools/JflexColoringLexer.flex" skel="tools/jflex_coloring.skeleton" destdir="src" nobak="true"/>
+        <!--patching the lexer customisation-->
+        <replace file="src/org/netbeans/modules/jflex/editor/lexer/JflexColoringLexer.java">
+            <replacetoken>      yychar+= zzMarkedPosL-zzStartRead;&#xA;&#xA;</replacetoken>
+            <replacevalue></replacevalue>
+        </replace>
+        <replace file="src/org/netbeans/modules/jflex/editor/lexer/JflexColoringLexer.java">
+            <replacetoken><![CDATA[
+          if (zzCurrentPosL < zzEndReadL)
+            zzInput = zzBufferL[zzCurrentPosL++];
+          else if (zzAtEOF) {
+            zzInput = YYEOF;
+            break zzForAction;
+          }
+          else {
+            // store back cached positions
+            zzCurrentPos  = zzCurrentPosL;
+            zzMarkedPos   = zzMarkedPosL;
+            boolean eof = zzRefill();
+            // get translated positions and possibly new buffer
+            zzCurrentPosL  = zzCurrentPos;
+            zzMarkedPosL   = zzMarkedPos;
+            zzBufferL      = zzBuffer;
+            zzEndReadL     = zzEndRead;
+            if (eof) {
+              zzInput = YYEOF;
+              break zzForAction;
+            }
+            else {
+              zzInput = zzBufferL[zzCurrentPosL++];
+            }
+          }]]></replacetoken>
+            <replacevalue></replacevalue>
+        </replace>
+    </target>
+    <target name="netbeans-extra" depends="build-init,gen-jflex-lexer">
+        <echo>
+            Netbeans Extra tasks
+        </echo>
+    </target>
+</project>
