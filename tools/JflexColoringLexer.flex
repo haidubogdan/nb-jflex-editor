@@ -42,10 +42,6 @@
 
 package org.netbeans.modules.jflex.editor.lexer;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.netbeans.spi.lexer.LexerInput;
 import org.netbeans.spi.lexer.LexerRestartInfo;
 import org.netbeans.modules.jflex.editor.common.ByteStack;
@@ -69,6 +65,7 @@ import org.netbeans.modules.jflex.editor.common.ByteStack;
     private int curlyBalanceExpr = 0;
     private boolean hasExpression = false;
     private boolean inExpression = false;
+    private boolean inRulesGroup = false;
     private String expression; 
 
     public JflexColoringLexer(LexerRestartInfo info) {
@@ -162,7 +159,7 @@ import org.netbeans.modules.jflex.editor.common.ByteStack;
             // backup eof
             input.backup(1);
             //and return the text as error token
-             return JflexTokenId.T_JAVA;
+             return JflexTokenId.T_UNKNOWN;
         } else {
             return null;
         }
@@ -170,7 +167,11 @@ import org.netbeans.modules.jflex.editor.common.ByteStack;
 
 %state ST_JFLEX_OPTIONS_AND_DECLARATIONS
 %state ST_JFLEX_LOOKING_FOR_OPTION_PARAM
+%state ST_JFLEX_LOOKING_FOR_MACRO_DEFINITION
+%state ST_JFLEX_MACRO_DEFINITION
 %state ST_JFLEX_STATE_LEXICAL_RULE
+%state ST_JFLEX_STATE_RULE_CONDITION
+%state ST_JFLEX_STATE_LEXICAL_RULE_GROUP
 %state ST_JFLEX_STATE_LEXICAL_RULE_LIST
 %state ST_JFLEX_STATE_LEXICAL_RULE_CODE
 %state ST_JFLEX_LOOKING_FOR_RULE_CODE
@@ -186,100 +187,47 @@ LABEL=([[:letter:]_]|[\u007f-\u00ff])([[:letter:][:digit:]_]|[\u007f-\u00ff])*
 OPTION = "%" + {LABEL}
 NEWLINE = [\n]
 WHITESPACE = [ \t\f]
-LEXICAL_STATE_TAGS = "<" + {LABEL} + ("," + {WHITESPACE}* + {LABEL})* + ">"
+LEXICAL_STATE_TAGS = "<" + {LABEL} + ("," + {WHITESPACE}* + {LABEL})* + ">" | "<<EOF>>"
 REGEX_QUANTIFIER = "{" + ([0-9])+ "}"
-REGEX_EXPRESSION = ("[" + [^\[\n] + "]" +  {REGEX_QUANTIFIER}?)+ ("|" + {WHITESPACE}* {STRING})* | ([\\] [\\]* [^] [\|]*)+ 
+REGEX_EXPRESSION = ("[" + ([^\[\n] | "^")+ "]" +  {REGEX_QUANTIFIER}?)+ ("|" + {WHITESPACE}* {STRING})* | ([\\] [\\]* [^\n] [\|]*)+
+OTHER_EXPRESSION = [0-9] | [\\][a-z] | [a-z][\?] | ";"
+REGEX_BLOCK = "[" ([^\[\n\"]+ | {REGEX_EXPRESSION})+ "]"
+EOF = "<<EOF>>"
 MACRO = "{" + {LABEL} + "}"
 ANY_CHAR=[^]
+INLINE_STRING = \"([^\n\\\"]|\\.)*\"
 STRING = \"([^\\\"]|\\.)*\"
 //comment
-BLOCK_COMMENT = "/*" [^*] ~"*/" | "/*" "*"+ "/"
-BLOCK_COMMENT_NL = {BLOCK_COMMENT} [ ]* [\n]
+BLOCK_COMMENT = "/*" [*]* [^*] ~"*/" | "/*" "*"+ "/"
 INLINE_COMMENT = "//" + [^\n]+
+COMMENT = {BLOCK_COMMENT} | {INLINE_COMMENT}
 MACRO_DEFINITION = {LABEL}
 STANDARD_DIRECTIVE = "%" ("init" | "initthrow" | "eofval" | "eof" | "eofthrow")
+OPERATOR = "[" | "]" | "(" | ")" | "{" | "}" | "*" | ":" | "|" | "-" | "+" | "%" | "." | "?" | "!" | "~" | "^" | "_" | "/"
 //CONSTANT_LABEL = ([A-Z\_] | [A-Z0-9\_])+
 %%
+
+<YYINITIAL>[^%]+ {
+    //until the first "%" we are treating the code as JAVA
+    return JflexTokenId.T_JAVA;
+}
 
 <YYINITIAL>"%%" {
     pushState(ST_JFLEX_OPTIONS_AND_DECLARATIONS);
     return JflexTokenId.T_JFLEX_DECL_WRAPPER_TAG;
 }
 
-<YYINITIAL>[^\%]+ {
-    return JflexTokenId.T_JAVA; 
-}
-
-/**
-* OPTIONS AND DECLARATIONS
+/*
+* OPTIONS AND DECLARATION
 */
 
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>"%%" {
-    pushState(ST_JFLEX_LEXICAL_RULES);
-    return JflexTokenId.T_JFLEX_DECL_WRAPPER_TAG;
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{COMMENT} {
+    return  JflexTokenId.T_COMMENT;
 }
 
-//EOFVAL
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{STANDARD_DIRECTIVE}"{" {
-    pushState(ST_JFLEX_CODEVAL_OPTION);
-    return JflexTokenId.T_JFLEX_CLASS_CODE_TAG;
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{NEWLINE}+ {
+    return JflexTokenId.T_NEWLINE;
 }
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{STANDARD_DIRECTIVE}"}" {
-    return JflexTokenId.T_JFLEX_CLASS_CODE_TAG;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>"%state" {
-    pushState(ST_JFLEX_STATE_DEFINE);
-    return JflexTokenId.T_JFLEX_OPTION;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{OPTION} {
-    pushState(ST_JFLEX_LOOKING_FOR_OPTION_PARAM);
-    return JflexTokenId.T_JFLEX_OPTION;
-}
-
-<ST_JFLEX_LOOKING_FOR_OPTION_PARAM>[^\n]+ {
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_LOOKING_FOR_OPTION_PARAM>{NEWLINE} {
-    popState();
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS> {
-    {WHITESPACE}+ {
-        return JflexTokenId.T_WHITESPACE;
-    }
-    {MACRO_DEFINITION} {
-        return JflexTokenId.T_JFLEX_MACRO;
-    }
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{BLOCK_COMMENT_NL} {
-    yypushback(1);
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{INLINE_COMMENT} {
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{STRING} {
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>"~" {
-    return JflexTokenId.T_TILDA;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>"{" {
-    //pushState(YYINITIAL);
-    return JflexTokenId.T_JAVA;
-}
-
 //USER CODE
 
 <ST_JFLEX_OPTIONS_AND_DECLARATIONS>"%{" {
@@ -298,111 +246,243 @@ STANDARD_DIRECTIVE = "%" ("init" | "initthrow" | "eofval" | "eof" | "eofthrow")
     return JflexTokenId.T_JAVA;
 }
 
-<ST_JFLEX_LEXER_USERCODE>{ANY_CHAR} {
-    popState();
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{STANDARD_DIRECTIVE} "{" {
+    pushState(ST_JFLEX_CODEVAL_OPTION);
+    return JflexTokenId.T_JFLEX_CLASS_CODE_TAG;
+}
+
+<ST_JFLEX_CODEVAL_OPTION>[^%]+ ~ {STANDARD_DIRECTIVE} "}" {
+    String tt = yytext();
+    int directiveNameIndex = tt.lastIndexOf("%");
+    yypushback(tt.length() - directiveNameIndex);
     return JflexTokenId.T_JAVA;
 }
 
-<ST_JFLEX_CODEVAL_OPTION>[^%] {
-    //popState();
-    //yypushback("%eofval}".length());
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_CODEVAL_OPTION>{STANDARD_DIRECTIVE}"}" {
+<ST_JFLEX_CODEVAL_OPTION>{STANDARD_DIRECTIVE} "}" {
     popState();
     return JflexTokenId.T_JFLEX_CLASS_CODE_TAG;
 }
 
-<ST_JFLEX_CODEVAL_OPTION>{ANY_CHAR} {
-    popState();
+<ST_JFLEX_CODEVAL_OPTION>"%" {
+    //just a ordinary char
     return JflexTokenId.T_JAVA;
 }
 
+// simple option
 
-/*
-* LEXICAL RULES
-*/
-
-<ST_JFLEX_LEXICAL_RULES, ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST, ST_JFLEX_STATE_LEXICAL_RULE_CODE>{BLOCK_COMMENT_NL} {
-    yypushback(1);
-    return JflexTokenId.T_JAVA; 
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{OPTION} {
+    pushState(ST_JFLEX_LOOKING_FOR_OPTION_PARAM);
+    return JflexTokenId.T_JFLEX_OPTION;
 }
 
-<ST_JFLEX_LEXICAL_RULES, ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST, ST_JFLEX_STATE_LEXICAL_RULE_CODE>{INLINE_COMMENT} {
-    return JflexTokenId.T_JAVA; 
+<ST_JFLEX_LOOKING_FOR_OPTION_PARAM, ST_JFLEX_LOOKING_FOR_MACRO_DEFINITION>{WHITESPACE}+ {
+    return JflexTokenId.T_WHITESPACE;
 }
 
-<ST_JFLEX_LEXICAL_RULES>"<<EOF>>" | {LEXICAL_STATE_TAGS} {
-    pushState(ST_JFLEX_STATE_LEXICAL_RULE);
-    curlyBalance = 0;
-    curlyBalanceExpr = 0;
-    hasExpression = false;
-    inExpression = false;
-    expression = "";
+<ST_JFLEX_LOOKING_FOR_OPTION_PARAM>{LABEL} {
+    return JflexTokenId.T_KEYWORD;
+}
+
+<ST_JFLEX_LOOKING_FOR_OPTION_PARAM>{NEWLINE} {
+    popState();
+    return JflexTokenId.T_NEWLINE;
+}
+
+//MACROS
+
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS> {
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
+    }
+    {MACRO_DEFINITION} {
+        pushState(ST_JFLEX_LOOKING_FOR_MACRO_DEFINITION);
+        return JflexTokenId.T_JFLEX_MACRO;
+    }
+}
+
+<ST_JFLEX_LOOKING_FOR_MACRO_DEFINITION>"=" {
+    pushState(ST_JFLEX_MACRO_DEFINITION);
+    return JflexTokenId.T_OPERATOR;
+}
+
+<ST_JFLEX_MACRO_DEFINITION> {
+    {REGEX_EXPRESSION} | {REGEX_BLOCK} {
+        return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
+    }
+
+    {MACRO} {
+        return JflexTokenId.T_JFLEX_MACRO;
+    }
+
+    {INLINE_STRING} {
+        return JflexTokenId.T_STRING;
+    }
+
+    {OPERATOR} {
+        return JflexTokenId.T_OPERATOR;
+    }
+
+    {EOF} {
+        return JflexTokenId.T_KEYWORD;
+    }
+
+    {OTHER_EXPRESSION} {
+        return JflexTokenId.T_KEYWORD;
+    }
+
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
+    }
+}
+
+<ST_JFLEX_MACRO_DEFINITION>{NEWLINE} {
+    popState();
+    popState();
+    return JflexTokenId.T_NEWLINE;
+}
+
+<ST_JFLEX_OPTIONS_AND_DECLARATIONS>"%%" {
+    pushState(ST_JFLEX_LEXICAL_RULES);
+    return JflexTokenId.T_JFLEX_DECL_WRAPPER_TAG;
+}
+
+<ST_JFLEX_LEXICAL_RULES>{COMMENT} {
+    return  JflexTokenId.T_COMMENT;
+}
+
+<ST_JFLEX_LEXICAL_RULES> {
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
+    }
+    {NEWLINE}+ {
+        return JflexTokenId.T_NEWLINE;
+    }
+}
+
+<ST_JFLEX_LEXICAL_RULES>{LEXICAL_STATE_TAGS}{WHITESPACE}+ "{" ([\n] | [ ]) {
+    int spaceCount = 0;
+    for (char c : yytext().toCharArray()) {
+        if (c == ' ') {
+             spaceCount++;
+        }
+    }
+    pushState(ST_JFLEX_STATE_LEXICAL_RULE_GROUP);
+    yypushback(spaceCount + 2);
+    inRulesGroup = true;
     return JflexTokenId.T_JFLEX_LEXICAL_STATE_TAG;
 }
 
-<ST_JFLEX_LEXICAL_RULES>{REGEX_EXPRESSION} {
-    pushState(ST_JFLEX_STATE_LEXICAL_RULE);
-    hasExpression = true;
-    return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
-}
-
-<ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>{MACRO} {
-    if (!inExpression){
-        expression = yytext();
-        hasExpression = true;
+<ST_JFLEX_STATE_LEXICAL_RULE_GROUP>{
+    {COMMENT} {
+        return  JflexTokenId.T_COMMENT;
     }
-    
-    return JflexTokenId.T_JFLEX_MACRO;
-}
-
-<ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>{REGEX_EXPRESSION} {
-    if (!inExpression){
-        expression = yytext();
-        hasExpression = true;
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
     }
-    
-    return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
-}
-
-<ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>{STRING} {
-    if (!inExpression){
-        expression = yytext();
-        hasExpression = true;
+    {NEWLINE}+ {
+        return JflexTokenId.T_NEWLINE;
     }
-    return JflexTokenId.T_JAVA;
 }
 
-<ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>{WHITESPACE}+ {
-    return JflexTokenId.T_WHITESPACE; 
+<ST_JFLEX_STATE_LEXICAL_RULE_GROUP>"{" {
+    pushState(ST_JFLEX_STATE_LEXICAL_RULE_LIST);
+    return JflexTokenId.T_CURLY_OPEN;
 }
 
-<ST_JFLEX_STATE_LEXICAL_RULE>"{" {
-
-    if (hasExpression){
-        curlyBalanceExpr = 1;
-        pushState(ST_JFLEX_STATE_LEXICAL_RULE_CODE);
-    } else {
-        inExpression = true;
-        curlyBalance++;
-        pushState(ST_JFLEX_STATE_LEXICAL_RULE_LIST);
+<ST_JFLEX_STATE_LEXICAL_RULE_LIST> {
+    {COMMENT} {
+        return  JflexTokenId.T_COMMENT;
     }
-    return JflexTokenId.T_JAVA;
+    {REGEX_EXPRESSION} | {REGEX_BLOCK} | "." {
+        return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
+    }
+
+    {MACRO} {
+        return JflexTokenId.T_JFLEX_MACRO;
+    }
+
+    {INLINE_STRING} {
+        return JflexTokenId.T_STRING;
+    }
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
+    }
+    {NEWLINE}+ {
+        return JflexTokenId.T_NEWLINE;
+    }
 }
 
 <ST_JFLEX_STATE_LEXICAL_RULE_LIST>"{" {
     curlyBalanceExpr = 1;
     pushState(ST_JFLEX_STATE_LEXICAL_RULE_CODE);
-    return JflexTokenId.T_JAVA;
+    return JflexTokenId.T_CURLY_OPEN;
 }
 
-<ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>"}" {
-    curlyBalance--;
-    if(curlyBalance <=0){
-        pushState(ST_JFLEX_LEXICAL_RULES);
+
+<ST_JFLEX_STATE_LEXICAL_RULE_LIST>"}" {
+    pushState(ST_JFLEX_LEXICAL_RULES);
+    inRulesGroup = false;
+    return JflexTokenId.T_CURLY_CLOSE;
+}
+
+<ST_JFLEX_STATE_LEXICAL_RULE_LIST>{OPERATOR} {
+    return JflexTokenId.T_OPERATOR;
+}
+
+<ST_JFLEX_LEXICAL_RULES>{LEXICAL_STATE_TAGS} {
+    pushState(ST_JFLEX_STATE_RULE_CONDITION);
+    return JflexTokenId.T_JFLEX_LEXICAL_STATE_TAG;
+}
+
+<ST_JFLEX_STATE_RULE_CONDITION>
+ {
+    {REGEX_EXPRESSION} | {REGEX_BLOCK} | "."  {
+        return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
     }
+
+    {MACRO} {
+        return JflexTokenId.T_JFLEX_MACRO;
+    }
+
+    {INLINE_STRING} {
+        return JflexTokenId.T_STRING;
+    }
+
+    {EOF} {
+        return JflexTokenId.T_KEYWORD;
+    }
+
+    {OTHER_EXPRESSION} {
+        return JflexTokenId.T_KEYWORD;
+    }
+
+    {WHITESPACE}+ {
+        return JflexTokenId.T_WHITESPACE;
+    }
+    {NEWLINE}+ {
+        return JflexTokenId.T_NEWLINE;
+    }
+}
+
+<ST_JFLEX_STATE_RULE_CONDITION>"{" {
+    curlyBalanceExpr++;
+    pushState(ST_JFLEX_STATE_LEXICAL_RULE_CODE);
+    if (curlyBalanceExpr == 1) {
+        return JflexTokenId.T_CURLY_OPEN;
+    } else {
+        return JflexTokenId.T_OTHER;
+    }
+}
+
+<ST_JFLEX_STATE_RULE_CONDITION>{OPERATOR} {
+    return JflexTokenId.T_OPERATOR;
+}
+
+/*
+* RULE CODE
+*/
+
+<ST_JFLEX_STATE_LEXICAL_RULE_CODE>{COMMENT} {
     return JflexTokenId.T_JAVA;
 }
 
@@ -410,103 +490,54 @@ STANDARD_DIRECTIVE = "%" ("init" | "initthrow" | "eofval" | "eof" | "eofthrow")
     return JflexTokenId.T_JAVA;
 }
 
-<ST_JFLEX_STATE_LEXICAL_RULE_CODE>{WHITESPACE}+ {
-    return JflexTokenId.T_WHITESPACE;
-}
-
-
 <ST_JFLEX_STATE_LEXICAL_RULE_CODE>"{" {
     curlyBalanceExpr++;
     return JflexTokenId.T_JAVA;
 }
 
+<ST_JFLEX_STATE_LEXICAL_RULE_CODE>[^{}/*']+ {
+    return JflexTokenId.T_JAVA;
+}
+
+<ST_JFLEX_STATE_LEXICAL_RULE_CODE>"*" | "'" {
+    return JflexTokenId.T_OTHER;
+}
+
 <ST_JFLEX_STATE_LEXICAL_RULE_CODE>"}" {
     curlyBalanceExpr--;
-    if(curlyBalanceExpr <=0){
-        popState();
-        if (hasExpression){
+    if(curlyBalanceExpr ==0){
+        if (inRulesGroup){
+            pushState(ST_JFLEX_STATE_LEXICAL_RULE_LIST);
+        } else {
             pushState(ST_JFLEX_LEXICAL_RULES);
         }
+        return JflexTokenId.T_CURLY_CLOSE;
     }
-    return JflexTokenId.T_JAVA;
+    return JflexTokenId.T_OTHER;
 }
 
-
-<YYINITIAL, ST_JFLEX_OPTIONS_AND_DECLARATIONS, ST_JFLEX_LEXER_USERCODE, ST_JFLEX_STATE_LEXICAL_RULE>"YYINITIAL" {
-    return JflexTokenId.T_JFLEX_LEXICAL_STATE_TAG;
+<ST_JFLEX_LEXICAL_RULES, ST_JFLEX_STATE_RULE_CONDITION, ST_JFLEX_STATE_LEXICAL_RULE_LIST, ST_JFLEX_STATE_LEXICAL_RULE_CODE, ST_JFLEX_STATE_LEXICAL_RULE_GROUP>{ANY_CHAR} {
+    return  JflexTokenId.T_UNKNOWN;
 }
 
-<ST_JFLEX_STATE_LEXICAL_RULE_CODE>("yybegin" | "pushState") {WHITESPACE}* "("  {
-    pushState(ST_JFLEX_LOOKING_FOR_LABEL);
-    return JflexTokenId.T_JAVA;
+<ST_JFLEX_CODEVAL_OPTION, ST_JFLEX_LEXER_USERCODE, ST_JFLEX_OPTIONS_AND_DECLARATIONS, ST_JFLEX_LOOKING_FOR_OPTION_PARAM, ST_JFLEX_LOOKING_FOR_MACRO_DEFINITION, ST_JFLEX_MACRO_DEFINITION>{ANY_CHAR} {
+    return  JflexTokenId.T_UNKNOWN;
 }
 
-<ST_JFLEX_LOOKING_FOR_LABEL>{LABEL} {
-    popState();
-    return JflexTokenId.T_JFLEX_STATE_NAME;
+<YYINITIAL>{ANY_CHAR} {
+    return  JflexTokenId.T_UNKNOWN;
 }
 
-<ST_JFLEX_LOOKING_FOR_LABEL>{WHITESPACE}+ {
-     return JflexTokenId.T_WHITESPACE;
+<YYINITIAL, ST_JFLEX_LEXICAL_RULES><<EOF>> {
+    if (input.readLength() > 0) {
+          input.backup(1);  // backup eof
+          return JflexTokenId.T_OTHER;
+      }
+      else {
+          return null;
+      }
 }
 
-<ST_JFLEX_LOOKING_FOR_LABEL>{ANY_CHAR} {
-    popState();
-    return JflexTokenId.T_JAVA;
-}
-
-//eagger search
-
-<ST_JFLEX_STATE_LEXICAL_RULE_CODE>[^//{}\'yp]+ {
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_STATE_LEXICAL_RULE_CODE>{ANY_CHAR} {
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_LEXICAL_RULES, ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_STATE_LEXICAL_RULE_LIST>{ANY_CHAR} {
-    return JflexTokenId.T_JAVA;
-}
-
-<YYINITIAL, ST_JFLEX_STATE_LEXICAL_RULE, ST_JFLEX_OPTIONS_AND_DECLARATIONS>{MACRO} {
-    return JflexTokenId.T_JFLEX_MACRO;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS>{REGEX_EXPRESSION} {
-    return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
-}
-
-<ST_JFLEX_OPTIONS_AND_DECLARATIONS, ST_JFLEX_STATE_LEXICAL_RULE>{REGEX_EXPRESSION} {
-    return JflexTokenId.T_JFLEX_REGEX_EXPRESSION;
-}
-
-<ST_JFLEX_STATE_DEFINE>{LABEL} {
-    //pushState(ST_JFLEX_OPTIONS_AND_DECLARATIONS);
-    return JflexTokenId.T_JFLEX_STATE_NAME;
-}
-
-<ST_JFLEX_STATE_DEFINE>"," {
-    return JflexTokenId.T_JFLEX_COMMA;
-}
-
-<ST_JFLEX_STATE_DEFINE>([ ])+ {
-    return JflexTokenId.T_WHITESPACE;
-}
-
-<ST_JFLEX_STATE_DEFINE>{NEWLINE} {
-    popState();
-    return JflexTokenId.T_JAVA;
-}
-
-<ST_JFLEX_REGEX_DEFINE>{ANY_CHAR} {
-    pushState(ST_JFLEX_OPTIONS_AND_DECLARATIONS);
-}
-
-<YYINITIAL, ST_JFLEX_OPTIONS_AND_DECLARATIONS, ST_JFLEX_STATE_DEFINE, ST_JFLEX_STATE_LEXICAL_RULE>{ANY_CHAR} {
-   return  JflexTokenId.T_JAVA;
-}
-
-<YYINITIAL, ST_JFLEX_OPTIONS_AND_DECLARATIONS, ST_JFLEX_STATE_DEFINE, ST_JFLEX_LEXICAL_RULES>. {
-   return  JflexTokenId.T_JAVA;
+<YYINITIAL>. {
+   return JflexTokenId.T_UNKNOWN;
 }

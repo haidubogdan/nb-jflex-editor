@@ -70,6 +70,8 @@ public class JflexJavaEmbeddingProvider extends EmbeddingProvider {
     public List<Embedding> getEmbeddings(Snapshot snapshot) {
         TokenHierarchy<CharSequence> th = TokenHierarchy.create(snapshot.getText(), JflexTokenId.language());
         TokenSequence<JflexTokenId> sequence = th.tokenSequence(JflexTokenId.language());
+        //System.out.println("Sequence");
+        //System.out.println(sequence);
         if (sequence == null) {
             return Collections.emptyList();
         }
@@ -78,7 +80,6 @@ public class JflexJavaEmbeddingProvider extends EmbeddingProvider {
         List<Embedding> embeddings = new ArrayList<>();
 
         int offset = 0;
-        int len = 0;
 
         String fake;
         //int phpStart = -1;
@@ -89,18 +90,15 @@ public class JflexJavaEmbeddingProvider extends EmbeddingProvider {
             Token<JflexTokenId> t = sequence.token();
             offset = sequence.offset();
             TokenId id = t.id();
-            len += t.length();
             String tText = t.text().toString();
-            if (len == 0) {
-                continue;
-            }
+            //System.out.println("Embd token " + tText + ", offset " + offset + ", length T " + t.length() + ", length text " + tText.length());
 
-            if (id.equals(JflexTokenId.T_JAVA) || id.equals(JflexTokenId.T_WHITESPACE)) {
+           // if (id.equals(JflexTokenId.T_JAVA)) {
                 embeddings.add(snapshot.create(offset, t.length(), JAVA_MIME_TYPE));
-            } else {
-                fake = new String(new char[tText.length()]).replace("\0", " ");
-                embeddings.add(snapshot.create(fake, JAVA_MIME_TYPE));
-            }
+            //} else {
+            //    fake = new String(new char[tText.length()]).replace("\0", " ");
+            //    embeddings.add(snapshot.create(fake, JAVA_MIME_TYPE));
+            //}
         }
 
         if (embeddings.isEmpty()) {

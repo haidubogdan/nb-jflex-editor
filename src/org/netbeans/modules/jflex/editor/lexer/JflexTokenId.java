@@ -74,6 +74,16 @@ public enum JflexTokenId implements TokenId {
     T_TILDA("jflex_operator"),
     T_JFLEX_COMMA("whitespace"),
     T_WHITESPACE("whitespace"),
+    T_NEWLINE("whitespace"),
+    T_COMMENT("comment"),
+    T_KEYWORD("keyword"),
+    T_UNKNOWN("error"), 
+    T_JAVA_JFLEX_STATE_NAME("jflex_state_name"), 
+    T_CURLY_OPEN("whitespace"),
+    T_CURLY_CLOSE("whitespace"),
+    T_STRING("string"), 
+    T_OPERATOR("whitespace"),
+    T_OTHER("whitespace"),
     ;
     private final String primaryCategory;
 
@@ -119,6 +129,8 @@ public enum JflexTokenId implements TokenId {
 
                     switch (id){
                         case T_JAVA:
+                            //no break
+                        case T_JAVA_JFLEX_STATE_NAME:    
                             lang = JavaTokenId.language();
                             join_sections = true;
                             break;

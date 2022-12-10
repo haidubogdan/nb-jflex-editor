@@ -33,7 +33,7 @@ public class JflexLexer implements Lexer<JflexTokenId> {
             return token;
         } catch (IOException ex) {
             Logger.getLogger(JflexLexer.class.getName()).log(Level.SEVERE, null, ex);
-            Exceptions.printStackTrace(ex);
+            //Exceptions.printStackTrace(ex);
         }
         return null;
     }

@@ -54,7 +54,10 @@ public class JflexLexerTestBase extends NbTestCase {
             result.append(tokenId.name());
             result.append(" “");
             result.append(JflexLexerUtils.replaceLinesAndTabs(text.toString()));
-            result.append("“\n");
+            result.append("“ ");
+            result.append(" offset ");
+            result.append(ts.offset());
+            result.append("\n");
         }
         return result.toString();
     }
